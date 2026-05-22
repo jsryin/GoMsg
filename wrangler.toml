@@ -1,0 +1,17 @@
+name = "gomsg"
+main = "src/index.ts"
+compatibility_date = "2024-05-12"
+compatibility_flags = ["nodejs_compat"]
+
+[durable_objects]
+bindings = [
+  { name = "GATEWAY_MANAGER", class_name = "GatewayManager" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["GatewayManager"]
+
+[vars]
+DISCORD_APPLICATION_ID = ""
+TARGET_API_URL = ""
