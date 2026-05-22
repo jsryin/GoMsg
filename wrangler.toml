@@ -15,3 +15,6 @@ new_classes = ["GatewayManager"]
 [vars]
 DISCORD_APPLICATION_ID = ""
 TARGET_API_URL = ""
+
+[triggers]
+crons = ["0 */6 * * *"]
