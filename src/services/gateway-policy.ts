@@ -1,5 +1,9 @@
 import { GatewayCloseCode } from '../types/discord';
 
+const BASE_RECONNECT_DELAY = 5000;
+const MAX_RECONNECT_DELAY = 60000;
+const MAX_RECONNECT_ATTEMPTS = 10;
+
 const FATAL_CLOSE_CODES = new Set<number>([
   GatewayCloseCode.AuthenticationFailed,
   GatewayCloseCode.InvalidShard,
@@ -29,4 +33,15 @@ export function shouldResetSession(closeCode: number): boolean {
 // Discord INVALID_SESSION 的 d=false 表示不可恢复，必须重新 Identify。
 export function canResumeInvalidSession(payloadData: unknown): boolean {
   return payloadData === true;
+}
+
+// 使用完整抖动退避，避免多个实例同时重新 Identify。
+export function getReconnectDelay(attempts: number): number {
+  const cappedAttempts = Math.min(attempts, MAX_RECONNECT_ATTEMPTS);
+  const maxDelay = Math.min(
+    BASE_RECONNECT_DELAY * Math.pow(2, cappedAttempts),
+    MAX_RECONNECT_DELAY
+  );
+
+  return Math.floor(BASE_RECONNECT_DELAY + Math.random() * (maxDelay - BASE_RECONNECT_DELAY));
 }

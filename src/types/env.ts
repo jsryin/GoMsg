@@ -18,8 +18,10 @@ export interface GatewayState {
   sequence: number | null;
   sessionId: string | null;
   lastHeartbeat: number;
+  lastHeartbeatSentAt: number | null;
+  reconnectAttempts: number;
   connected: boolean;
-  status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+  status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected' | 'fatal';
   lastCloseCode: number | null;
   lastCloseReason: string | null;
   nextReconnectAt: number | null;
