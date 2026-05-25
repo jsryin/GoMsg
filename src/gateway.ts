@@ -43,6 +43,8 @@ export class GatewayManager {
       sessionId: null,
       lastHeartbeat: 0,
       connected: false,
+      lastCloseCode: null,
+      lastCloseReason: null,
     };
   }
 
@@ -75,18 +77,11 @@ export class GatewayManager {
       const gatewayUrl = this.discord.getGatewayUrl();
       logger.info('Connecting to Discord Gateway', { url: gatewayUrl });
 
-      // 创建 WebSocket 连接
-      const { 0: clientWs, 1: serverWs } = new WebSocketPair();
-      this.ws = serverWs;
-
-      // 接受 WebSocket 连接
-      serverWs.accept();
-
-      // 设置事件处理器
-      this.setupWebSocketHandlers(serverWs);
-
       // 连接到 Discord Gateway
       const discordWs = new WebSocket(gatewayUrl);
+      this.ws = discordWs;
+      this.gatewayState.lastCloseCode = null;
+      this.gatewayState.lastCloseReason = null;
       this.setupDiscordHandlers(discordWs);
 
       logger.info('WebSocket connection established');
@@ -94,25 +89,6 @@ export class GatewayManager {
       logger.error('Failed to connect to Discord Gateway', error as Error);
       this.scheduleReconnect();
     }
-  }
-
-  // 设置 WebSocket 事件处理器
-  private setupWebSocketHandlers(ws: WebSocket): void {
-    ws.addEventListener('message', (event) => {
-      logger.debug('Received message from client', { data: event.data });
-    });
-
-    ws.addEventListener('close', (event) => {
-      logger.info('Client WebSocket closed', {
-        code: event.code,
-        reason: event.reason,
-      });
-      this.close();
-    });
-
-    ws.addEventListener('error', (event) => {
-      logger.error('Client WebSocket error', event as any);
-    });
   }
 
   // 设置 Discord WebSocket 事件处理器
@@ -132,6 +108,11 @@ export class GatewayManager {
         reason: event.reason,
       });
       this.gatewayState.connected = false;
+      this.gatewayState.lastCloseCode = event.code;
+      this.gatewayState.lastCloseReason = event.reason || null;
+      if (this.ws === ws) {
+        this.ws = null;
+      }
       this.stopHeartbeat();
 
       // 检查是否需要重连

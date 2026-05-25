@@ -19,4 +19,6 @@ export interface GatewayState {
   sessionId: string | null;
   lastHeartbeat: number;
   connected: boolean;
+  lastCloseCode: number | null;
+  lastCloseReason: string | null;
 }
