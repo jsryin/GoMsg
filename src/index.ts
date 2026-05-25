@@ -70,7 +70,7 @@ export default {
     
     try {
       await gateway.fetch(new Request('https://internal/connect'));
-      logger.info('Gateway connection initiated');
+      logger.info('Gateway connection ensured');
     } catch (error) {
       logger.error('Failed to initiate gateway connection', error as Error);
     }

@@ -5,11 +5,15 @@ import { Env, GatewayState } from './types/env';
 import {
   GatewayPayload,
   GatewayOpcode,
-  GatewayCloseCode,
   GatewayMessage,
 } from './types/discord';
 import { DiscordService } from './services/discord';
 import { MessageForwarder, createForwarder } from './services/forwarder';
+import {
+  canResumeInvalidSession,
+  shouldReconnect,
+  shouldResetSession,
+} from './services/gateway-policy';
 import { createLogger } from './utils/logger';
 
 const logger = createLogger('GatewayManager');
@@ -43,8 +47,10 @@ export class GatewayManager {
       sessionId: null,
       lastHeartbeat: 0,
       connected: false,
+      status: 'idle',
       lastCloseCode: null,
       lastCloseReason: null,
+      nextReconnectAt: null,
     };
   }
 
@@ -53,8 +59,10 @@ export class GatewayManager {
     const url = new URL(request.url);
     
     if (url.pathname === '/connect') {
-      await this.connect();
-      return new Response('Connecting to Discord Gateway...');
+      await this.ensureConnected();
+      return new Response(JSON.stringify(this.gatewayState), {
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
     
     if (url.pathname === '/status') {
@@ -66,11 +74,22 @@ export class GatewayManager {
     return new Response('GatewayManager is running');
   }
 
+  // 确保 Gateway 已连接；重复调用不会关闭已有连接。
+  async ensureConnected(): Promise<void> {
+    if (this.hasActiveSocket()) {
+      logger.info('Gateway connection already active', {
+        status: this.gatewayState.status,
+      });
+      return;
+    }
+
+    await this.connect();
+  }
+
   // 连接到 Discord Gateway
-  async connect(): Promise<void> {
-    if (this.ws) {
-      logger.info('Already connected, closing existing connection');
-      this.close();
+  private async connect(): Promise<void> {
+    if (this.hasActiveSocket()) {
+      return;
     }
 
     try {
@@ -80,8 +99,11 @@ export class GatewayManager {
       // 连接到 Discord Gateway
       const discordWs = new WebSocket(gatewayUrl);
       this.ws = discordWs;
+      this.gatewayState.connected = false;
+      this.gatewayState.status = 'connecting';
       this.gatewayState.lastCloseCode = null;
       this.gatewayState.lastCloseReason = null;
+      this.gatewayState.nextReconnectAt = null;
       this.setupDiscordHandlers(discordWs);
 
       logger.info('WebSocket connection established');
@@ -107,16 +129,25 @@ export class GatewayManager {
         code: event.code,
         reason: event.reason,
       });
+      if (this.ws !== ws) {
+        logger.debug('Ignoring stale WebSocket close event');
+        return;
+      }
+
       this.gatewayState.connected = false;
       this.gatewayState.lastCloseCode = event.code;
       this.gatewayState.lastCloseReason = event.reason || null;
-      if (this.ws === ws) {
-        this.ws = null;
-      }
+      this.gatewayState.status = 'disconnected';
+      this.gatewayState.nextReconnectAt = null;
+      this.ws = null;
       this.stopHeartbeat();
 
-      // 检查是否需要重连
-      if (event.code !== GatewayCloseCode.DisallowedIntents) {
+      if (shouldResetSession(event.code)) {
+        this.resetSession();
+      }
+
+      // 检查是否需要重连，认证/Intent 等致命错误不能循环重试。
+      if (shouldReconnect(event.code)) {
         this.scheduleReconnect();
       }
     });
@@ -161,9 +192,10 @@ export class GatewayManager {
         break;
 
       case GatewayOpcode.InvalidSession:
-        logger.warn('Invalid session, will reconnect');
-        this.gatewayState.sessionId = null;
-        this.gatewayState.sequence = null;
+        logger.warn('Invalid session, will reconnect', { resumable: payload.d });
+        if (!canResumeInvalidSession(payload.d)) {
+          this.resetSession();
+        }
         this.close();
         this.scheduleReconnect();
         break;
@@ -207,10 +239,19 @@ export class GatewayManager {
       case 'READY':
         this.gatewayState.sessionId = data.session_id;
         this.gatewayState.connected = true;
+        this.gatewayState.status = 'connected';
+        this.gatewayState.nextReconnectAt = null;
         logger.info('Connected to Discord', {
           sessionId: data.session_id,
           user: data.user?.username,
         });
+        break;
+
+      case 'RESUMED':
+        this.gatewayState.connected = true;
+        this.gatewayState.status = 'connected';
+        this.gatewayState.nextReconnectAt = null;
+        logger.info('Resumed Discord session');
         break;
 
       case 'MESSAGE_CREATE':
@@ -292,9 +333,14 @@ export class GatewayManager {
       MAX_RECONNECT_DELAY
     );
 
+    this.gatewayState.connected = false;
+    this.gatewayState.status = 'reconnecting';
+    this.gatewayState.nextReconnectAt = Date.now() + delay;
+
     logger.info('Scheduling reconnect', { delay });
 
     this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
       this.connect();
     }, delay) as any;
   }
@@ -318,6 +364,23 @@ export class GatewayManager {
     }
 
     this.gatewayState.connected = false;
+    this.gatewayState.status = 'disconnected';
+    this.gatewayState.nextReconnectAt = null;
+  }
+
+  // 清除不可恢复的 session 信息，避免下一次错误地 Resume。
+  private resetSession(): void {
+    this.gatewayState.sessionId = null;
+    this.gatewayState.sequence = null;
+  }
+
+  // CONNECTING/OPEN 都视为活跃，避免重复 Identify 触发 Discord 限制。
+  private hasActiveSocket(): boolean {
+    return (
+      this.ws !== null &&
+      (this.ws.readyState === WebSocket.CONNECTING ||
+        this.ws.readyState === WebSocket.OPEN)
+    );
   }
 }
 

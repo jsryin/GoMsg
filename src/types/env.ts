@@ -19,6 +19,8 @@ export interface GatewayState {
   sessionId: string | null;
   lastHeartbeat: number;
   connected: boolean;
+  status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
   lastCloseCode: number | null;
   lastCloseReason: string | null;
+  nextReconnectAt: number | null;
 }
