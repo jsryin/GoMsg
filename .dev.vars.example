@@ -1,4 +1,11 @@
+# Discord Bot Token，用于调用 Discord API 和连接 Gateway
 DISCORD_TOKEN=your_discord_bot_token_here
+
+# Discord 应用公钥，用于校验 Interactions 请求签名
 DISCORD_PUBLIC_KEY=your_discord_public_key_here
+
+# Discord 应用 ID，用于标识当前 Discord 应用
 DISCORD_APPLICATION_ID=your_discord_application_id_here
+
+# 目标转发接口地址，收到 Discord 消息后会以 POST JSON 转发到这里
 TARGET_API_URL=https://api.example.com
