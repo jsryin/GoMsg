@@ -10,7 +10,7 @@ bindings = [
 
 [[migrations]]
 tag = "v1"
-new_classes = ["GatewayManager"]
+new_sqlite_classes = ["GatewayManager"]
 
 [vars]
 DISCORD_APPLICATION_ID = ""
